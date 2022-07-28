@@ -1,0 +1,151 @@
+####Using DESeq for differential gene expression analysis####
+
+
+#libraries
+library(DESeq2)
+library(ggplot2)
+library(dplyr)
+library(EnhancedVolcano)
+library(clusterProfiler)
+library(tidyverse)
+library(enrichR)
+library(msigdbr)
+library(org.Hs.eg.db)
+library(enrichplot)
+library(gage)
+library(pathview)
+#read Data
+ews <- readRDS("EWS.rds")
+
+#Explore data
+head(assay(ews))
+rowData(ews)
+coldata <-colData(ews)
+all(colnames(counts.data)%in% rownames(coldata))#Checking to see if rownames in coldata match with colnames in counts data
+all(colnames(counts.data) == rownames(coldata)) #Cheking to see if they are in the same order
+
+###Create DESeq2 object###
+counts.data <- assay(ews)
+assay(ews, "counts")
+sampleInfo <- as.data.frame(colData(ews))
+colnames(counts.data)
+dds <- DESeqDataSetFromMatrix(countData = counts.data,
+                                 colData = coldata,
+                                 design = ~ condition)
+
+#Filtering: removing rows with low gene counts
+keep <- rowSums(counts(dds)) >= 10
+keep
+ddsMat <- ddsMat[keep,]
+head(ddsMat)
+ddsMat$condition
+
+#setting the factor level
+ddsMat$condition <- relevel(ddsMat$condition, ref = "shCTR")
+ddsMat$condition
+
+###Run DESeq###
+dds<- DESeq(ddsMat)
+
+#Table of differently expressed genes
+res <- results(dds)
+res
+sigs <- na.omit(res) #omiting the NA values
+sigs <- sigs[sigs$padj <0.05,] #Showing genes with p-value <0.05
+sigs
+write.csv(sigs, "DEGs.csv") #writing the table as a csv
+vsdata <- vst(dds, blind=FALSE)
+
+#Explore Results
+summary(sigs)
+
+#MA plot
+plotMA(sigs)
+
+###PCA Plot###
+plotPCA(vsdata, intgroup = "condition")
+
+#Dispersion plot
+plotDispEsts(dds)
+
+#converting significant results to dataframe
+df <- as.data.frame(sigs)
+df
+#Get Gene ID's and add to dataframe
+tmp=gsub("\\..*","",row.names(df))
+tmp
+df$symbol <- mapIds(org.Hs.eg.db, keys = tmp, keytype = "ENSEMBL", column = "SYMBOL") 
+#Getting normalized counts from dds
+mat <- counts(dds, normalized = T)[rownames(df),]
+
+#Get zscore for each row
+mat.z <- t(apply(mat, 1, scale))
+colnames(mat.z) <- c("shCTR", "shCTR", "shCTR", "shEF1", "shEF1", "shEF1", "shEF1")
+
+###Heatmap Plot###
+heatmap(mat.z, cluster_rows = T, cluster_columns = T, column_labels = colnames(mat.z),
+        name = "Z-score")
+
+###Volcano Plot###
+EnhancedVolcano(df, x = "log2FoldChange", y = "padj", lab = rownames(df)) 
+
+###Enrichment Analysis###
+H <- msigdbr(species = "Homo sapiens", category = "H") #gene set database
+class(H)
+
+#Define significant genes based on P-value by looking at distribution
+ggplot(df, aes(x = padj))+
+  geom_histogram()
+
+#Set Cutoff
+signif <- df %>%
+  filter(pvalue <= 0.01)
+head(signif)
+ 
+#Get Gene ID
+signif.ensembl <- unique(signif$symbol)
+H.ensembl <- dplyr::select(H, gs_name, gene_symbol)
+
+#Run Enrichment
+enrich.signif.df <- enricher(gene = signif.ensembl, TERM2GENE = H.ensembl)
+head(enrich.signif.df@result) #View Results
+
+#Writing results to CSV
+write.csv(enrich.signif.df, "EnrichmentAnalysis.csv")
+#Figure to summarize Results (Figure to Summarize Enrichment Analysis?)
+barplot(enrich.signif.df, showCategory = 10)
+
+
+
+
+#Setting up KEGG database
+#kg.hsa <- kegg.gsets(species="hsa")
+#kegg.sigmet.gs <- kg.hsa$kg.sets[kg.hsa$sigmet.idx]
+#kegg.dise.gs <- kg.hsa$kg.sets[kg.hsa$dise.idx]
+
+#Grabing the log fold changes 
+#signif.logfd <- signif$log2FoldChange
+#names(signif.logfd) <- H.ensembl$gene_symbol
+#KEGG Enrichment
+#enrichKEGG(deg_data = signif, x = log2FoldChange, y = pvalue, cut_FC = 1,
+               #pvalueCutoff = 0.05)
+
+#KEGG.Enrch <- gage(signif.logfd, gsets = kegg.sigmet.gs)
+
+#kegg.Ench <- gage(signif.logfd, gsets = kegg.dise.gs)
+
+#Convert KEGG Results to data frame
+#kegg.up <- as.data.frame(KEGG.Enrch$greater)
+
+#kegg.up.d <- as.data.frame(kegg.Ench$greater)
+#Write KEGG Results to CSV
+
+#Visualize KEGG Anslysis
+#kegg.up[grepl("hsa05200", rownames(kegg.up), fixed=TRUE),]
+
+#pathview(gene.data= signif.logfd, species="hsa", pathway.id="hsa05200")
+#Writing results to CSV
+write.csv(enrich.signif.df, "EnrichmentAnalysis.csv")
+#Figure to summarize Results (Figure to Summarize Enrichment Analysis?)
+barplot(enrich.signif.df, showCategory = 10)
+
