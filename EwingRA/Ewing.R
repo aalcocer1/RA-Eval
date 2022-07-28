@@ -10,8 +10,6 @@ library(clusterProfiler)
 library(tidyverse)
 library(enrichR)
 library(msigdbr)
-library(org.Hs.eg.db)
-library(enrichplot)
 
 #read Data
 ews <- readRDS("EWS.rds")
