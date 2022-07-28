@@ -12,8 +12,7 @@ library(enrichR)
 library(msigdbr)
 library(org.Hs.eg.db)
 library(enrichplot)
-library(gage)
-library(pathview)
+
 #read Data
 ews <- readRDS("EWS.rds")
 
